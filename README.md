@@ -1,4 +1,4 @@
-# GCN_Partitioning
+# GCN Partitioning
 Graph Partitoning Using Graph Convolutional Networks
 
 ## Installation
@@ -24,6 +24,7 @@ pip install -r requirements.txt
 ```bash
 python TrialModel.py
 ```
-
+## Limitations
+Can only handle small graphs. Custom Sparse backward method needs debugging.
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)

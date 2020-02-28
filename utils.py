@@ -251,22 +251,3 @@ def test_partition(Y):
     _, idx = torch.max(Y, 1)
     return idx
 
-def rev_symnormalise(M):
-    """
-    symmetrically normalise sparse matrix
-
-    arguments:
-    M: scipy sparse matrix
-
-    returns:
-    D^{-1/2} M D^{-1/2}
-    where D is the diagonal node-degree matrix
-    """
-
-    d = np.array(M.sum(1))
-
-    dhi = np.power(d, 1 / 2).flatten()
-    dhi[np.isinf(dhi)] = 0.
-    DHI = sp.diags(dhi)  # D half inverse i.e. D^{-1/2}
-
-    return (DHI.dot(M)).dot(DHI)
