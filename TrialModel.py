@@ -10,18 +10,20 @@ import torch.nn.functional as F
 import torch.optim as optim
 from utils import *
 from scipy import sparse
+from models import *
+
 
 def Train(model, x, adj, A, optimizer):
     '''
     Training Specifications
     '''
 
-    max_epochs = 2000
+    max_epochs = 100
     min_loss = 100
     for epoch in (range(max_epochs)):
         Y = model(x, adj)
-        # loss = CutLoss.apply(Y,A)
-        loss = custom_loss(Y, A)
+        loss = CutLoss.apply(Y,A)
+        # loss = custom_loss(Y, A)
         print('Epoch {}:   Loss = {}'.format(epoch, loss.item()))
         if loss < min_loss:
             min_loss = loss.item()
@@ -29,9 +31,8 @@ def Train(model, x, adj, A, optimizer):
         loss.backward()
         optimizer.step()
 
-    # test = torch.autograd.gradcheck(CutLoss.apply, (Y.double(), A.double()), check_sparse_nnz=True)
 
-def Test(model, x, adj, A):
+def Test(model, x, adj, A, *argv):
     '''
     Test Final Results
     '''
@@ -39,26 +40,11 @@ def Test(model, x, adj, A):
     Y = model(x, adj)
     node_idx = test_partition(Y)
     print(node_idx)
-    print('Normalized Cut obtained using the above partition is : {0:.3f}'.format(custom_loss(Y,A).item()))
-
-def input_matrix():
-    '''
-    Returns a test sparse SciPy adjecency matrix
-    '''
-    # N = 8
-    # data = np.ones(2 * 11)
-    # row = np.array([0,0,1,1,1,2,2,2,3,3,3,4,4,4,4,5,5,6,6,6,7,7])
-    # col = np.array([1,2,0,2,3,0,1,3,1,2,4,3,5,6,7,4,6,4,5,7,4,6])
-
-    N = 7
-    data = np.ones(2 * 9)
-    row = np.array([0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6])
-    col = np.array([2, 3, 4, 6, 0, 4, 5, 6, 0, 4, 5, 1, 2, 3, 2, 3, 1, 2])
-
-    A = sp.csr_matrix((data, (row, col)), shape=(N, N))
-
-    return A
-
+    if argv != ():
+        if argv[0] == 'debug':
+            print('Normalized Cut obtained using the above partition is : {0:.3f}'.format(custom_loss(Y,A).item()))
+    else:
+        print('Normalized Cut obtained using the above partition is : {0:.3f}'.format(CutLoss.apply(Y,A).item()))
 
 def main():
     '''
@@ -70,14 +56,15 @@ def main():
     A_mod = A + sp.eye(A.shape[0])  # Adding Self Loop
     norm_adj = symnormalise(A_mod)  # Normalization using D^(-1/2) A D^(-1/2)
     adj = sparse_mx_to_torch_sparse_tensor(norm_adj).to('cuda') # SciPy to Torch sparse
-    A = sparse_mx_to_torch_sparse_tensor(A).to_dense().to('cuda')   # SciPy to Torch sparse
+    As = sparse_mx_to_torch_sparse_tensor(A).to('cuda')  # SciPy to sparse Tensor
+    A = sparse_mx_to_torch_sparse_tensor(A).to_dense().to('cuda')   # SciPy to Torch Tensor
     print(A)
 
     '''
     Declare Input Size and Tensor
     '''
     N = A.shape[0]
-    d = 128
+    d = 512
 
     torch.manual_seed(100)
     x = torch.randn(N, d)
@@ -93,9 +80,13 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=5e-4, weight_decay=5e-6)
     print(model)
 
-    Train(model, x, adj, A, optimizer)
+    # check_grad(model, x, adj, A, As)
 
-    Test(model, x, adj, A)
+    #Train
+    Train(model, x, adj, As, optimizer)
+
+    # Test the best partition
+    Test(model, x, adj, As)
 
 if __name__ == '__main__':
     main()

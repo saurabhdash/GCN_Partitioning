@@ -6,45 +6,44 @@ from torch.nn.parameter import Parameter
 from torch.nn.modules.module import Module
 import torch.nn.functional as F
 import torch.nn as nn
+from models import *
 
-class GraphConvolution(Module):
-    """
-    Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
-    """
+def input_matrix():
+    '''
+    Returns a test sparse SciPy adjecency matrix
+    '''
+    # N = 8
+    # data = np.ones(2 * 11)
+    # row = np.array([0,0,1,1,1,2,2,2,3,3,3,4,4,4,4,5,5,6,6,6,7,7])
+    # col = np.array([1,2,0,2,3,0,1,3,1,2,4,3,5,6,7,4,6,4,5,7,4,6])
 
-    def __init__(self, in_features, out_features, bias=True):
-        super(GraphConvolution, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = Parameter(torch.FloatTensor(in_features, out_features))
-        if bias:
-            self.bias = Parameter(torch.FloatTensor(out_features))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
+    N = 7
+    data = np.ones(2 * 9)
+    row = np.array([0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6])
+    col = np.array([2, 3, 4, 6, 0, 4, 5, 6, 0, 4, 5, 1, 2, 3, 2, 3, 1, 2])
 
-    def reset_parameters(self):
-        stdv = 1. / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)
-        if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)
+    # N = 3
+    # data = np.array([1/2,1/2,1/3,1/3])
+    # row = np.array([0,1,1,2])
+    # col = np.array([1,0,2,1])
 
-    def forward(self, H, A):
-        W = self.weight
-        b = self.bias
+    A = sp.csr_matrix((data, (row, col)), shape=(N, N))
 
-        HW = torch.mm(H, W)
-        # AHW = SparseMM.apply(A, HW)
-        AHW = torch.spmm(A, HW)
-        if self.bias is not None:
-            return AHW + b
-        else:
-            return AHW
+    return A
 
-    def __repr__(self):
-        return self.__class__.__name__ + ' (' \
-               + str(self.in_features) + ' -> ' \
-               + str(self.out_features) + ')'
+def check_grad(model, x, adj, A, As):
+    Y = model(x, adj)
+    Y.register_hook(print)
+    print(Y)
+    print('\n')
+    loss1 = CutLoss.apply(Y,As)
+    loss = custom_loss(Y, A)
+    print('\n')
+    loss.backward()
+    print('\n')
+    loss1.backward()
+    # test_backward(Y,As)
+    # test = torch.autograd.gradcheck(CutLoss.apply, (Y.double(), As.double()), check_sparse_nnz=True)
 
 
 class SparseMM(torch.autograd.Function):
@@ -85,6 +84,7 @@ class GCN(torch.nn.Module):
         self.dropout = dropout
         self.graphlayers = nn.ModuleList([GraphConvolution(gl[i], gl[i+1], bias=True) for i in range(len(gl)-1)])
         self.linlayers = nn.ModuleList([nn.Linear(ll[i], ll[i+1]) for i in range(len(ll)-1)])
+
     def forward(self, H, A):
         # x = F.relu(self.gc1(x, adj))
         # x = F.dropout(x, self.dropout, training=self.training)
@@ -107,9 +107,19 @@ class GCN(torch.nn.Module):
 
 
 def custom_loss(Y, A):
+    '''
+    loss function described in https://arxiv.org/abs/1903.00614
+
+    arguments:
+        Y_ij : Probability that a node i belongs to partition j
+        A : dense adjecency matrix
+
+    Returns:
+        Loss : Y/Gamma * (1 - Y)^T dot A
+    '''
     D = torch.sum(A, dim=1)
     Gamma = torch.mm(Y.t(), D.unsqueeze(1))
-
+    # print(Gamma)
     loss = torch.sum(torch.mm(torch.div(Y.float(), Gamma.t()), (1 - Y).t().float()) * A.float())
     return loss
 
@@ -127,6 +137,16 @@ def to_sparse(x):
     return sparse_tensortype(indices, values, x.size())
 
 def custom_loss_sparse(Y, A):
+    '''
+    loss function described in https://arxiv.org/abs/1903.00614
+
+    arguments:
+        Y_ij : Probability that a node i belongs to partition j
+        A : sparse adjecency matrix
+
+    Returns:
+        Loss : Y/Gamma * (1 - Y)^T dot A
+    '''
     D = torch.sparse.sum(A, dim=1).to_dense()
     Gamma = torch.mm(Y.t(), D.unsqueeze(1).float())
     YbyGamma = torch.div(Y, Gamma.t())
@@ -134,63 +154,22 @@ def custom_loss_sparse(Y, A):
     loss = torch.tensor([0.])
     idx = A._indices()
     for i in range(idx.shape[1]):
-        # print(YbyGamma[idx[0,i],:].dtype)
-        # print(Y_t[:,idx[1,i]].dtype)
         loss += torch.dot(YbyGamma[idx[0,i],:], Y_t[:,idx[1,i]])
-        # print(loss)
-    # loss = torch.sum(torch.mm(YbyGamma, Y_t) * A)
     return loss
 
-def RandLargeGraph(N):
-    i = (torch.LongTensor(2,int(0.05 * N)).random_(0, N))
-    v = 1. * torch.ones(int(0.05 * N))
+def RandLargeGraph(N,c):
+    '''
+    Creates large random graphs with c fraction connections compared to the actual graph size
+    '''
+    i = (torch.LongTensor(2,int(c * N)).random_(0, N))
+    v = 1. * torch.ones(int(c * N))
     return torch.sparse.FloatTensor(i, v, torch.Size([N, N]))
 
-class CutLoss(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, Y, A):
-        ctx.save_for_backward(Y,A)
-        D = torch.sparse.sum(A, dim=1).to_dense()
-        Gamma = torch.mm(Y.t(), D.unsqueeze(1))
-        YbyGamma = torch.div(Y, Gamma.t())
-        # print(Gamma)
-        Y_t = (1 - Y).t()
-        loss = torch.tensor([0.], requires_grad=True)
-        idx = A._indices()
-        data = A._values()
-        for i in range(idx.shape[1]):
-            # print(YbyGamma[idx[0,i],:].dtype)
-            # print(Y_t[:,idx[1,i]].dtype)
-            # print(torch.dot(YbyGamma[idx[0, i], :], Y_t[:, idx[1, i]]) * data[i])
-            loss += torch.dot(YbyGamma[idx[0, i], :], Y_t[:, idx[1, i]]) * data[i]
-            # print(loss)
-        # loss = torch.sum(torch.mm(YbyGamma, Y_t) * A)
-        return loss
-
-    @staticmethod
-    def backward(ctx, grad_out):
-        Y, A, = ctx.saved_tensors
-        idx = A._indices()
-        data = A._values()
-        D = torch.sparse.sum(A, dim=1).to_dense()
-        Gamma = torch.mm(Y.t(), D.unsqueeze(1))
-        # print(Gamma.shape)
-        gradient = torch.zeros_like(Y)
-        # print(gradient.shape)
-        for i in range(gradient.shape[0]):
-            for j in range(gradient.shape[1]):
-                alpha_ind = (idx[0, :] == i).nonzero()
-                alpha = idx[1, alpha_ind]
-                A_i_alpha = data[alpha_ind]
-                temp = A_i_alpha / torch.pow(Gamma[j], 2) * (Gamma[j] * (1 - 2 * Y[alpha, j]) - D[i] * (
-                            Y[i, j] * (1 - Y[alpha, j]) + (1 - Y[i, j]) * (Y[alpha, j])))
-                gradient[i, j] = torch.sum(temp)
-
-        # print(gradient)
-        return gradient, None
 
 def test_backward(Y,A):
+    '''
+    This a function to debug if the gradients from the CutLoss class match the actual gradients
+    '''
     idx = A._indices()
     data = A._values()
     D = torch.sparse.sum(A, dim=1).to_dense()
@@ -198,14 +177,35 @@ def test_backward(Y,A):
     # print(Gamma.shape)
     gradient = torch.zeros_like(Y, requires_grad=True)
     # print(gradient.shape)
+    # print(idx)
     for i in range(gradient.shape[0]):
         for j in range(gradient.shape[1]):
-            if i == 1 and j == 0:
-                alpha_ind = (idx[0, :] == i).nonzero()
-                alpha = idx[1, alpha_ind]
-                A_i_alpha = data[alpha_ind]
-                temp = A_i_alpha/ torch.pow(Gamma[j], 2) * ( Gamma[j] * (1 - 2 * Y[alpha, j]) - D[i] * ( Y[i, j] * (1 - Y[alpha, j]) + (1 - Y[i, j]) * (Y[alpha, j]) ) )
-                gradient[i, j] = temp
+            # if i == 1 and j == 0:
+            alpha_ind = (idx[0, :] == i).nonzero()
+            alpha = idx[1, alpha_ind]
+            A_i_alpha = data[alpha_ind]
+            temp = A_i_alpha/ torch.pow(Gamma[j], 2) * ( Gamma[j] * (1 - 2 * Y[alpha, j]) - D[i] * ( Y[i, j] * (1 - Y[alpha, j]) + (1 - Y[i, j]) * (Y[alpha, j]) ) )
+            gradient[i, j] = torch.sum(temp)
+
+            l_idx = list(idx.t())
+            l2 = []
+            l2_val = []
+            # [l2.append(mem) for mem in l_idx if((mem[0] != i).item() and (mem[1] != i).item())]
+            for ptr, mem in enumerate(l_idx):
+                if ((mem[0] != i).item() and (mem[1] != i).item()):
+                    l2.append(mem)
+                    l2_val.append(data[ptr])
+            extra_gradient = 0
+            if(l2 != []):
+                for val, mem in zip(l2_val, l2):
+                    extra_gradient += (-D[i] * torch.sum(Y[mem[0],j] * (1 - Y[mem[1],j]) / torch.pow(Gamma[j],2))) * val
+
+            gradient[i,j] += extra_gradient
+
+    print(gradient)
+
+
+
 
 
 def normalize(mx):
@@ -251,3 +251,20 @@ def test_partition(Y):
     _, idx = torch.max(Y, 1)
     return idx
 
+def Train_dense(model, x, adj, A, optimizer):
+    '''
+    Training Specifications
+    '''
+
+    max_epochs = 100
+    min_loss = 100
+    for epoch in (range(max_epochs)):
+        Y = model(x, adj)
+        # loss = CutLoss.apply(Y,A)
+        loss = custom_loss(Y, A)
+        print('Epoch {}:   Loss = {}'.format(epoch, loss.item()))
+        if loss < min_loss:
+            min_loss = loss.item()
+            torch.save(model.state_dict(), "./trial_weights.pt")
+        loss.backward()
+        optimizer.step()

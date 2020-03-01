@@ -25,8 +25,7 @@ pip install -r requirements.txt
 python TrialModel.py
 ```
 ## Limitations
-Can only handle small graphs. Custom Sparse backward method in utils.py needs debugging.
-
+Has only been tested on small custom graphs.
 
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)
