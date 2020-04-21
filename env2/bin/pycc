@@ -1,0 +1,3 @@
+#!/home/sdash38/GCN_Partitioning/env2/bin/python3.6
+from numba.pycc import main
+main()

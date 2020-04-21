@@ -7,6 +7,9 @@ from torch.nn.modules.module import Module
 import torch.nn.functional as F
 import torch.nn as nn
 from utils import *
+import time
+from joblib import Parallel, delayed
+from numba import jit, prange
 
 
 class GraphConvolution(Module):
@@ -67,19 +70,49 @@ class GCN(torch.nn.Module):
         # x = self.gc2(x, adj)
         for idx, hidden in enumerate(self.graphlayers):
             H = F.relu(hidden(H,A))
-            if idx < len(self.graphlayers) - 2:
+            if idx < len(self.graphlayers):
                 H = F.dropout(H, self.dropout, training=self.training)
 
         H_emb = H
 
         for idx, hidden in enumerate(self.linlayers):
             H = F.relu(hidden(H))
+            if idx < len(self.linlayers):
+                H = F.dropout(H, self.dropout, training=self.training)
 
         # print(H)
         return F.softmax(H, dim=1)
 
     def __repr__(self):
         return str([self.graphlayers[i] for i in range(len(self.graphlayers))] + [self.linlayers[i] for i in range(len(self.linlayers))])
+
+
+def grad_element(Gamma, Y, D, idx, data, i, j):
+    # print('i = {}, j = {}'.format(i, j))
+    # grad_element = torch.tensor(0).to('cuda')
+    alpha_ind = (idx[0, :] == i).nonzero()
+    alpha = idx[1, alpha_ind]
+    A_i_alpha = data[alpha_ind]
+    temp = A_i_alpha / torch.pow(Gamma[j], 2) * (Gamma[j] * (1 - 2 * Y[alpha, j]) - D[i] * (
+            Y[i, j] * (1 - Y[alpha, j]) + (1 - Y[i, j]) * (Y[alpha, j])))
+    grad_element = torch.sum(temp)
+
+    l_idx = list(idx.t())
+    l2 = []
+    l2_val = []
+    # [l2.append(mem) for mem in l_idx if((mem[0] != i).item() and (mem[1] != i).item())]
+    for ptr, mem in enumerate(l_idx):
+        if ((mem[0] != i).item() and (mem[1] != i).item()):
+            l2.append(mem)
+            l2_val.append(data[ptr])
+    extra_gradient = 0
+    if (l2 != []):
+        for val, mem in zip(l2_val, l2):
+            extra_gradient += (-D[i] * torch.sum(
+                Y[mem[0], j] * (1 - Y[mem[1], j]) / torch.pow(Gamma[j], 2))) * val
+
+    grad_element += extra_gradient
+    return grad_element
 
 
 class CutLoss(torch.autograd.Function):
@@ -115,6 +148,7 @@ class CutLoss(torch.autograd.Function):
         return loss
 
     @staticmethod
+
     def backward(ctx, grad_out):
         Y, A, = ctx.saved_tensors
         idx = A._indices()
@@ -123,31 +157,17 @@ class CutLoss(torch.autograd.Function):
         Gamma = torch.mm(Y.t(), D.unsqueeze(1))
         # print(Gamma.shape)
         gradient = torch.zeros_like(Y)
+        # print(gradient.is_cuda)
         # print(gradient.shape)
+
+        start = time.time()
         for i in range(gradient.shape[0]):
             for j in range(gradient.shape[1]):
-                alpha_ind = (idx[0, :] == i).nonzero()
-                alpha = idx[1, alpha_ind]
-                A_i_alpha = data[alpha_ind]
-                temp = A_i_alpha / torch.pow(Gamma[j], 2) * (Gamma[j] * (1 - 2 * Y[alpha, j]) - D[i] * (
-                            Y[i, j] * (1 - Y[alpha, j]) + (1 - Y[i, j]) * (Y[alpha, j])))
-                gradient[i, j] = torch.sum(temp)
-
-                l_idx = list(idx.t())
-                l2 = []
-                l2_val = []
-                # [l2.append(mem) for mem in l_idx if((mem[0] != i).item() and (mem[1] != i).item())]
-                for ptr, mem in enumerate(l_idx):
-                    if ((mem[0] != i).item() and (mem[1] != i).item()):
-                        l2.append(mem)
-                        l2_val.append(data[ptr])
-                extra_gradient = 0
-                if (l2 != []):
-                    for val, mem in zip(l2_val, l2):
-                        extra_gradient += (-D[i] * torch.sum(
-                            Y[mem[0], j] * (1 - Y[mem[1], j]) / torch.pow(Gamma[j], 2))) * val
-
-                gradient[i, j] += extra_gradient
-
+                # start = time.time()
+                gradient[i,j] = grad_element(Gamma, Y, D, idx, data, i, j)
+                # elapsed = time.time() - start
+                # print('Time elapse: {}'.format(elapsed))
         # print(gradient)
+        elapsed = time.time() - start
+        # print('Time for a backward pass elapse: {}'.format(elapsed))
         return gradient, None

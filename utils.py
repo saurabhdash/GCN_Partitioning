@@ -6,7 +6,9 @@ from torch.nn.parameter import Parameter
 from torch.nn.modules.module import Module
 import torch.nn.functional as F
 import torch.nn as nn
+import networkx as nx
 from models import *
+import time
 
 def input_matrix():
     '''
@@ -98,6 +100,8 @@ class GCN(torch.nn.Module):
 
         for idx, hidden in enumerate(self.linlayers):
             H = F.relu(hidden(H))
+            # if idx < len(self.linlayers) - 1:
+            #     H = F.dropout(H, self.dropout, training=self.training)
 
         # print(H)
         return F.softmax(H, dim=1)
@@ -123,7 +127,29 @@ def custom_loss(Y, A):
     loss = torch.sum(torch.mm(torch.div(Y.float(), Gamma.t()), (1 - Y).t().float()) * A.float())
     return loss
 
-# loss = custom_loss(Y, A)
+def custom_loss_equalpart(Y, A, beta):
+    '''
+    loss function described in https://arxiv.org/abs/1903.00614
+
+    arguments:
+        Y_ij : Probability that a node i belongs to partition j
+        A : dense adjecency matrix
+
+    Returns:
+        Loss : Y/Gamma * (1 - Y)^T dot A + beta* (I^T Y - n/g)^2
+    '''
+    # beta = 0.0001
+    D = torch.sum(A, dim=1)
+    n = Y.shape[0]
+    g = Y.shape[1]
+    Gamma = torch.mm(Y.t(), D.unsqueeze(1))
+    # print(Gamma)
+    loss1 = (torch.pow(torch.mm(torch.ones(1,n).to('cuda')/n, Y) - 1/g , 2))
+    # print(loss1)
+    loss = torch.sum(torch.mm(torch.div(Y.float(), Gamma.t()), (1 - Y).t().float()) * A.float()) + beta * torch.sum(loss1)
+    return loss
+
+
 def to_sparse(x):
     """ converts dense tensor x to sparse format """
     x_typename = torch.typename(x).split('.')[-1]
@@ -135,6 +161,7 @@ def to_sparse(x):
     indices = indices.t()
     values = x[tuple(indices[i] for i in range(indices.shape[0]))]
     return sparse_tensortype(indices, values, x.size())
+
 
 def custom_loss_sparse(Y, A):
     '''
@@ -151,7 +178,7 @@ def custom_loss_sparse(Y, A):
     Gamma = torch.mm(Y.t(), D.unsqueeze(1).float())
     YbyGamma = torch.div(Y, Gamma.t())
     Y_t = (1 - Y).t()
-    loss = torch.tensor([0.])
+    loss = torch.tensor([0.]).to('cuda')
     idx = A._indices()
     for i in range(idx.shape[1]):
         loss += torch.dot(YbyGamma[idx[0,i],:], Y_t[:,idx[1,i]])
@@ -268,3 +295,77 @@ def Train_dense(model, x, adj, A, optimizer):
             torch.save(model.state_dict(), "./trial_weights.pt")
         loss.backward()
         optimizer.step()
+
+# Function returns the index of all matches of element "ele" in array 'array'
+def get_index(array,ele):
+    return [i for i, j in enumerate(array) if j == ele]
+
+# Function to check if there is a common element between two arrays
+def check_if_common_element(arr1,arr2):
+    a_set=set(arr1)
+    b_set=set(arr2)
+    if (a_set & b_set):
+        return (a_set & b_set).pop()
+    else:
+        return -1
+
+def HGR2Adj(filename):
+    '''
+        Takes a .hgr file and generates a SciPy Adjecency matrix
+    '''
+
+    file = open(filename, 'r')
+    # Storing each line of the file in the list lst[]
+    lst = []
+    # start = time.time()
+    for line in file:
+        lst.append(line)
+
+    hgr_elements = []
+    for item in lst:
+        hgr_elements += [item.strip(" \n").split(" ")]
+
+    # Storing the graph in COO format
+    data = []
+    row = []
+    col = []
+
+    # hgr file description
+    no_of_nets = hgr_elements[0][0]
+    no_of_cells = hgr_elements[0][1]
+    # Skipping the first line
+    hgr_elements_iter = iter(hgr_elements)
+    next(hgr_elements_iter)
+    itr = 0
+    for edge in hgr_elements_iter:
+        # print(itr)
+        # start = time.time()
+        no_of_nodes = len(edge)
+        weight = 1 / (no_of_nodes - 1)  # Weight of the edge in the graph
+        # print(edge)
+        # Updating the weights
+        for i in range(len(edge) - 1):
+            for j in range(i + 1, len(edge)):
+                # Check if an edge already exists between i and j
+                # If it does, then update the weight
+                if (edge[i] in row) and (edge[j] in col) and (
+                        check_if_common_element(get_index(row, edge[i]), get_index(col, edge[j])) >= 0):
+                    # The edge already exists
+                    data[check_if_common_element(get_index(row, edge[i]), get_index(col, edge[j]))] += weight
+                else:
+                    data.append(weight)
+                    row.append(edge[i])
+                    col.append(edge[j])
+        # print('Elapsed = {}'.format(time.time() - start))
+        # itr = itr+1
+
+    # print(data)
+    # print(row)
+    # print(col)
+    final_row = np.asarray(list(map(int, row + col))) - 1
+    final_col = np.asarray(list(map(int, col + row))) - 1
+    final_data = np.asarray(list(map(float, data + data)))
+    N = int(no_of_cells)
+    A = sp.csr_matrix((final_data, (final_row, final_col)), shape=(N, N))
+    return A
+
