@@ -6,9 +6,11 @@ from torch.nn.parameter import Parameter
 from torch.nn.modules.module import Module
 import torch.nn.functional as F
 import torch.nn as nn
-import networkx as nx
+# import networkx as nx
 from models import *
 import time
+from numba import njit, jit
+
 
 def input_matrix():
     '''
@@ -143,10 +145,14 @@ def custom_loss_equalpart(Y, A, beta):
     n = Y.shape[0]
     g = Y.shape[1]
     Gamma = torch.mm(Y.t(), D.unsqueeze(1))
-    # print(Gamma)
-    loss1 = (torch.pow(torch.mm(torch.ones(1,n).to('cuda')/n, Y) - 1/g , 2))
-    # print(loss1)
-    loss = torch.sum(torch.mm(torch.div(Y.float(), Gamma.t()), (1 - Y).t().float()) * A.float()) + beta * torch.sum(loss1)
+    # print(F.softmax(Y/0.1, 1)[0:10,:])
+    # print(Y[0:10,:])
+    # print(torch.mm(torch.ones(1,n).to('cuda')/n, F.softmax(Y/0.1, 1)))
+    # balance_loss = torch.sum(torch.pow(torch.mm(torch.ones(1,n).to('cuda')/n, F.softmax((Y + torch.randn(Y.shape).to('cuda') * 0.2)/0.1, 1)) - 1/g , 2))
+    balance_loss = torch.sum(torch.pow(torch.mm(torch.ones(1, n).to('cuda') / n, Y) - 1 / g, 2))
+    partition_loss = torch.sum(torch.mm(torch.div(Y.float(), Gamma.t()), (1 - Y).t().float()) * A.float())
+    print('Partition Loss:{0:.3f} \t Balance Loss:{0:.3f}'.format(partition_loss, balance_loss))
+    loss = partition_loss + beta * balance_loss
     return loss
 
 
@@ -338,8 +344,8 @@ def HGR2Adj(filename):
     next(hgr_elements_iter)
     itr = 0
     for edge in hgr_elements_iter:
-        # print(itr)
-        # start = time.time()
+        print(itr)
+        start = time.time()
         no_of_nodes = len(edge)
         weight = 1 / (no_of_nodes - 1)  # Weight of the edge in the graph
         # print(edge)
@@ -356,8 +362,8 @@ def HGR2Adj(filename):
                     data.append(weight)
                     row.append(edge[i])
                     col.append(edge[j])
-        # print('Elapsed = {}'.format(time.time() - start))
-        # itr = itr+1
+        print('Elapsed = {}'.format(time.time() - start))
+        itr += 1
 
     # print(data)
     # print(row)
@@ -369,3 +375,154 @@ def HGR2Adj(filename):
     A = sp.csr_matrix((final_data, (final_row, final_col)), shape=(N, N))
     return A
 
+
+def Train(model, x, adj, A, optimizer):
+    '''
+    Training Specifications
+    '''
+
+    max_epochs = 200
+    min_loss = 100
+    for epoch in (range(max_epochs)):
+        Y = model(x, adj)
+        loss = CutLoss.apply(Y,A)
+        print('Epoch {}:   Loss = {}'.format(epoch, loss.item()))
+        if loss < min_loss:
+            min_loss = loss.item()
+            torch.save(model.state_dict(), "./trial_weights.pt")
+        loss.backward()
+        optimizer.step()
+
+
+def Test(model, x, adj, A, *argv):
+    '''
+    Test Final Results
+    '''
+    model.load_state_dict(torch.load("./trial_weights.pt"))
+    Y = model(x, adj)
+    node_idx = test_partition(Y)
+    print(node_idx)
+    if argv != ():
+        if argv[0] == 'debug':
+            print('Normalized Cut obtained using the above partition is : {0:.3f}'.format(custom_loss(Y,A).item()))
+    else:
+        print('Normalized Cut obtained using the above partition is : {0:.3f}'.format(CutLoss.apply(Y,A).item()))
+    return node_idx
+
+
+def HypEdgCut(filename, node_idx):
+    file = open(filename, 'r')
+
+    int_hyedge = 0
+    for idx, line in enumerate(file):
+        element = line.strip(" \n").split(" ")
+        if idx == 0:
+            num_hyedges = int(element[0])
+            num_nodes = int(element[1])
+        else:
+            hyedge = np.asarray(list(map(int,element))) - 1
+            # print(hyedge)
+            node_class = node_idx[hyedge].data.cpu().numpy()
+            if not np.all(node_class == node_class[0]):
+                # print('cut')
+                int_hyedge += 1
+
+    print('Number of Hyper Edges intersected = {}'.format(int_hyedge))
+
+def sparse_test_and_train(model, x, adj, As, optimizer):
+    #Train
+    Train(model, x, adj, As, optimizer)
+
+    # Test the best partition
+    Test(model, x, adj, As)
+#
+# @jit(parallel=True, nopython=False)
+# def loop(hgr_elements, data, row, col):
+#     itr = 0
+#     for edge in hgr_elements:
+#         if itr == 0:
+#             print('itr = 0 skipped')
+#             itr += 1
+#             continue
+#         else:
+#             # edge = hgr_elements[itr]
+#             print(itr)
+#             # start = time.time()
+#             no_of_nodes = len(edge)
+#             weight = 1 / (no_of_nodes - 1)  # Weight of the edge in the graph
+#             # print(edge)
+#             # Updating the weights
+#             for i in range(len(edge) - 1):
+#                 for j in range(i + 1, len(edge)):
+#                     # Check if an edge already exists between i and j
+#                     # If it does, then update the weight
+#                     if (edge[i] in row) and (edge[j] in col) and (
+#                             check_if_common_element(get_index(row, edge[i]), get_index(col, edge[j])) >= 0):
+#                         # The edge already exists
+#                         data[check_if_common_element(get_index(row, edge[i]), get_index(col, edge[j]))] += weight
+#                     else:
+#                         data.append(weight)
+#                         row.append(edge[i])
+#                         col.append(edge[j])
+#             # print('Elapsed = {}'.format(time.time() - start))
+#             itr += 1
+#
+#     return data[1:], row[1:], col[1:]
+#
+#
+# @njit(parallel=True)
+# # Function returns the index of all matches of element "ele" in array 'array'
+# def get_index(array,ele):
+#     return [i for i, j in enumerate(array) if j == ele]
+#
+#
+# @njit(parallel=True)
+# # Function to check if there is a common element between two arrays
+# def check_if_common_element(arr1,arr2):
+#     a_set=set(arr1)
+#     b_set=set(arr2)
+#     if (a_set & b_set):
+#         return (a_set & b_set).pop()
+#     else:
+#         return -1
+#
+#
+# def HGR2Adj_parallel(filename):
+#     '''
+#         Takes a .hgr file and generates a SciPy Adjecency matrix
+#     '''
+#
+#     file = open(filename, 'r')
+#     # Storing each line of the file in the list lst[]
+#     lst = []
+#     # start = time.time()
+#     for line in file:
+#         lst.append(line)
+#
+#     hgr_elements = []
+#     for item in lst:
+#         hgr_elements += [item.strip(" \n").split(" ")]
+#
+#     # Storing the graph in COO format
+#     data = ['a']
+#     row = ['a']
+#     col = ['a']
+#
+#     # hgr file description
+#     no_of_nets = hgr_elements[0][0]
+#     no_of_cells = hgr_elements[0][1]
+#     # Skipping the first line
+#     # hgr_elements_iter = iter(hgr_elements)
+#     # next(hgr_elements_iter)
+#     data, row, col = loop(hgr_elements, data, row, col)
+#
+#
+#     # print(data)
+#     # print(row)
+#     # print(col)
+#     final_row = np.asarray(list(map(int, row + col))) - 1
+#     final_col = np.asarray(list(map(int, col + row))) - 1
+#     final_data = np.asarray(list(map(float, data + data)))
+#     N = int(no_of_cells)
+#     A = sp.csr_matrix((final_data, (final_row, final_col)), shape=(N, N))
+#     return A

@@ -8,8 +8,8 @@ import torch.nn.functional as F
 import torch.nn as nn
 from utils import *
 import time
-from joblib import Parallel, delayed
-from numba import jit, prange
+# from joblib import Parallel, delayed
+# from numba import jit, prange
 
 
 class GraphConvolution(Module):
@@ -27,10 +27,17 @@ class GraphConvolution(Module):
         else:
             self.register_parameter('bias', None)
         self.reset_parameters()
+        # self.reset_parameters_xavier()
 
     def reset_parameters(self):
         stdv = 1. / math.sqrt(self.weight.size(1))
         self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+    def reset_parameters_xavier(self):
+        nn.init.xavier_uniform_(self.weight, gain=nn.init.calculate_gain('relu'))
+        stdv = 1. / math.sqrt(self.weight.size(1))
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
 
