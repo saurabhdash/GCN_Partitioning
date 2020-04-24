@@ -8,8 +8,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 from utils import *
 import time
-# from joblib import Parallel, delayed
-# from numba import jit, prange
+
 
 
 class GraphConvolution(Module):
@@ -65,16 +64,12 @@ class GCN(torch.nn.Module):
         super(GCN, self).__init__()
         if ll[0] != gl[-1]:
             assert 'Graph Conv Last layer and Linear first layer sizes dont match'
-        # self.gc1 = GraphConvolution(nfeat, nhid)
-        # self.gc2 = GraphConvolution(nhid, nclass)
+
         self.dropout = dropout
         self.graphlayers = nn.ModuleList([GraphConvolution(gl[i], gl[i+1], bias=True) for i in range(len(gl)-1)])
         self.linlayers = nn.ModuleList([nn.Linear(ll[i], ll[i+1]) for i in range(len(ll)-1)])
 
     def forward(self, H, A):
-        # x = F.relu(self.gc1(x, adj))
-        # x = F.dropout(x, self.dropout, training=self.training)
-        # x = self.gc2(x, adj)
         for idx, hidden in enumerate(self.graphlayers):
             H = F.relu(hidden(H,A))
             if idx < len(self.graphlayers):
