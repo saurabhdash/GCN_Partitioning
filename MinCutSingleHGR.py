@@ -6,7 +6,7 @@ from models import *
 import pickle
 import argparse
 import matplotlib.pyplot as plt
-
+from hgr2sp import HGR2Adj
 
 def Train_dense(model, x, adj, A, As, optimizer, beta0, hyedge_lst, args):
     '''
@@ -85,6 +85,8 @@ def dense_test_and_train(model, x, adj, A, As, optimizer, beta, hyedge_lst, args
 
 def parse():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', type=str,
+                        dest='mode', default='old', help='To pickle a new hgr file')
     parser.add_argument('--circuit', type=str,
                         dest='circuit', default='fract', help='which circuit to partition')
     parser.add_argument('--beta', default=1, type=float,
@@ -104,8 +106,15 @@ def main():
     # pkl_filename = 'ibm01'
     # pkl_filename = 'industry3'
     # pkl_filename = 'fract'
-    filename = './hgr_files/'+args.circuit+'.hgr'
-    A = pickle.load( open('./pkl_files/'+args.circuit+'.pkl', "rb" ))
+    if args.mode == 'old':
+        filename = './hgr_files/'+args.circuit+'.hgr'
+        A = pickle.load( open('./pkl_files/'+args.circuit+'.pkl', "rb" ))
+    elif args.mode == 'new':
+        filename = './hgr_files/' + args.circuit + '.hgr'
+        A = HGR2Adj('./hgr_files/' + args.circuit + '.hgr')
+    else:
+        NotImplementedError()
+
     hyedge_lst = HypEdgeLst(filename)
 
     # Modifications

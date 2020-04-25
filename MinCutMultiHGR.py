@@ -5,13 +5,22 @@ from utils import *
 from models import *
 import pickle
 import matplotlib.pyplot as plt
+import argparse
+import os
+from hgr2sp import HGR2Adj
 
 
 class Circuit(object):
-    def __init__(self, circuit_name, d=1024):
+    def __init__(self, circuit_name, args=None, d=1024):
         self.name = circuit_name
-        self.filename = './hgr_files/' + self.name + '.hgr'
-        A = pickle.load(open('./pkl_files/' + self.name + '.pkl', "rb"))
+        if os.path.isfile('./pkl_files/' + self.name + '.pkl'):
+            self.filename = './hgr_files/' + self.name + '.hgr'
+            A = pickle.load(open('./pkl_files/' + self.name + '.pkl', "rb"))
+        else:
+            self.filename = './hgr_files/' + self.name + '.hgr'
+            A = HGR2Adj('./hgr_files/' + self.name + '.hgr')
+
+
         self.hyedge_lst = HypEdgeLst(self.filename)
 
         A_mod = A + sp.eye(A.shape[0])  # Adding Self Loop
@@ -100,6 +109,14 @@ class Solver(object):
         print('\n')
 
 
+def parse():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--testcircuit', type=str,
+                        dest='testcircuit', default='industry3', help='which circuit to partition')
+
+    return parser.parse_args()
+
+
 def main():
     '''
         Train, Val and Test Circuits
@@ -111,7 +128,9 @@ def main():
 
     valckt = [Circuit('structP', xdim), Circuit('fract', xdim)]
 
-    testckt = [Circuit('industry3', xdim)]
+    args = parse()
+
+    testckt = [Circuit(args.testcircuit, xdim)]
 
 
     '''

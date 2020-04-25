@@ -77,7 +77,7 @@ def HGR2Adj(filename):
     return A
 
 def main():
-    filename = 'biomedP'
+    filename = 'fract'
     A = HGR2Adj('./hgr_files/'+filename+'.hgr')
 
     pickle.dump(A, open('./pkl_files/'+filename+'.pkl', "wb" ))
