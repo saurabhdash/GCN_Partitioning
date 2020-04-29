@@ -5,7 +5,7 @@ __pycache__/
 .idea/
 # C extensions
 *.so
-
+env2/
 # Model Weights
 *.pt
 

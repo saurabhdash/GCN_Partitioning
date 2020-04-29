@@ -7,6 +7,7 @@ import pickle
 import argparse
 import matplotlib.pyplot as plt
 from hgr2sp import HGR2Adj
+import os
 
 def Train_dense(model, x, adj, A, As, optimizer, beta0, hyedge_lst, args):
     '''
@@ -14,10 +15,7 @@ def Train_dense(model, x, adj, A, As, optimizer, beta0, hyedge_lst, args):
     '''
 
     max_epochs = 100
-    # min_loss = 100
     min_cut = 10000000000
-    min_imbalance = 100
-    min_edge_cut = 100
     # beta = 0
     Hcut_arr = []
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.2)
@@ -30,17 +28,13 @@ def Train_dense(model, x, adj, A, As, optimizer, beta0, hyedge_lst, args):
         optimizer.step()
         cut, imbalance, edge_cut = test_epoch(model, x, adj, hyedge_lst, As, args)
         Hcut_arr.append(cut/hyedge_lst.num_hyedges)
-        # print(min_cut)
-        # print(min_imbalance)
         if cut <= min_cut:
             if args.parts == 2:
-                if imbalance < 15:
+                if imbalance < 15: # This is to ensure one partition is not 0
                     min_cut = cut
-                    # min_imbalance = imbalance
                     torch.save(model.state_dict(), "./model_weights/"+args.circuit+'_'+str(args.parts)+"_MinHedgeCut.pt")
             else:
                 min_cut = cut
-                # min_imbalance = imbalance
                 torch.save(model.state_dict(),
                            "./model_weights/" + args.circuit + '_' + str(args.parts) + "_MinHedgeCut.pt")
 
@@ -53,6 +47,9 @@ def Train_dense(model, x, adj, A, As, optimizer, beta0, hyedge_lst, args):
     plt.show()
 
 def test_epoch(model, x, adj, hyedge_lst, As, args):
+    '''
+    Check for the the number of hyperedges cut after each epoch
+    '''
     Y = model(x, adj)
     node_idx = test_partition(Y)
     imbalance = get_stats(node_idx, args.parts)
@@ -75,6 +72,9 @@ def Test_dense(model, x, adj, A, As, beta, hyedge_lst, args, *argv):
 
 
 def dense_test_and_train(model, x, adj, A, As, optimizer, beta, hyedge_lst, args):
+    '''
+    Training and Testing combined into a single code to be called
+    '''
     #Train
     Train_dense(model, x, adj, A, As, optimizer, beta, hyedge_lst, args)
 
@@ -84,9 +84,10 @@ def dense_test_and_train(model, x, adj, A, As, optimizer, beta, hyedge_lst, args
     return node_idx
 
 def parse():
+    '''
+    Parse args from command line
+    '''
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str,
-                        dest='mode', default='old', help='To pickle a new hgr file')
     parser.add_argument('--circuit', type=str,
                         dest='circuit', default='fract', help='which circuit to partition')
     parser.add_argument('--beta', default=1, type=float,
@@ -106,14 +107,24 @@ def main():
     # pkl_filename = 'ibm01'
     # pkl_filename = 'industry3'
     # pkl_filename = 'fract'
-    if args.mode == 'old':
+
+    '''
+    check for directories
+    '''
+    if not os.path.isdir('./model_weights'):
+        os.mkdir('./model_weights')
+    if not os.path.isdir('./pkl_files'):
+        os.mkdir('./pkl_files')
+    if not os.path.isdir('./hgr_files'):
+        os.mkdir('./hgr_files')
+
+    if os.path.isfile('./pkl_files/'+args.circuit+'.pkl'):
         filename = './hgr_files/'+args.circuit+'.hgr'
         A = pickle.load( open('./pkl_files/'+args.circuit+'.pkl', "rb" ))
-    elif args.mode == 'new':
+    else:
         filename = './hgr_files/' + args.circuit + '.hgr'
         A = HGR2Adj('./hgr_files/' + args.circuit + '.hgr')
-    else:
-        NotImplementedError()
+        pickle.dump(A, open('./pkl_files/' + args.circuit + '.pkl', "wb"))
 
     hyedge_lst = HypEdgeLst(filename)
 

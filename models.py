@@ -59,7 +59,9 @@ class GraphConvolution(Module):
 
 
 class GCN(torch.nn.Module):
-
+    '''
+    This is where the model is defined with GCNLayers and fully connected layers
+    '''
     def __init__(self, gl, ll, dropout):
         super(GCN, self).__init__()
         if ll[0] != gl[-1]:
@@ -90,6 +92,9 @@ class GCN(torch.nn.Module):
 
 
 def grad_element(Gamma, Y, D, idx, data, i, j):
+    '''
+    This is a debug function
+    '''
     # print('i = {}, j = {}'.format(i, j))
     # grad_element = torch.tensor(0).to('cuda')
     alpha_ind = (idx[0, :] == i).nonzero()

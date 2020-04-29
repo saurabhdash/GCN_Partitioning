@@ -1,3 +1,6 @@
+'''
+This file contains all the subroutines required for the model to run.
+'''
 import math
 import numpy as np
 import torch
@@ -35,41 +38,6 @@ class SparseMM(torch.autograd.Function):
             g2 = torch.mm(M1.t(), g)
 
         return g1, g2
-
-
-# class GCN(torch.nn.Module):
-#
-#     def __init__(self, gl, ll, dropout):
-#         super(GCN, self).__init__()
-#         if ll[0] != gl[-1]:
-#             assert 'Graph Conv Last layer and Linear first layer sizes dont match'
-#         # self.gc1 = GraphConvolution(nfeat, nhid)
-#         # self.gc2 = GraphConvolution(nhid, nclass)
-#         self.dropout = dropout
-#         self.graphlayers = nn.ModuleList([GraphConvolution(gl[i], gl[i+1], bias=True) for i in range(len(gl)-1)])
-#         self.linlayers = nn.ModuleList([nn.Linear(ll[i], ll[i+1]) for i in range(len(ll)-1)])
-#
-#     def forward(self, H, A):
-#         # x = F.relu(self.gc1(x, adj))
-#         # x = F.dropout(x, self.dropout, training=self.training)
-#         # x = self.gc2(x, adj)
-#         for idx, hidden in enumerate(self.graphlayers):
-#             H = F.relu(hidden(H,A))
-#             if idx < len(self.graphlayers) - 2:
-#                 H = F.dropout(H, self.dropout, training=self.training)
-#
-#         H_emb = H
-#
-#         for idx, hidden in enumerate(self.linlayers):
-#             H = F.relu(hidden(H))
-#             # if idx < len(self.linlayers) - 1:
-#             #     H = F.dropout(H, self.dropout, training=self.training)
-#
-#         # print(H)
-#         return F.softmax(H, dim=1)
-#
-#     def __repr__(self):
-#         return str([self.graphlayers[i] for i in range(len(self.graphlayers))] + [self.linlayers[i] for i in range(len(self.linlayers))])
 
 
 def custom_loss(Y, A):
@@ -144,6 +112,9 @@ def get_stats(node_idx, n_part):
 
 
 class HypEdgeLst(object):
+    '''
+    This handles parsing and calculating hyperedges cut
+    '''
     def __init__(self, filename):
         file = open(filename, 'r')
         self.hyedge = []
@@ -220,7 +191,7 @@ def test_partition(Y):
     _, idx = torch.max(Y, 1)
     return idx
 
-########################################################################################################################
+############################Experimental Functions######################################################################
 # def Train_dense(model, x, adj, A, optimizer):
 #     '''
 #     Training Specifications

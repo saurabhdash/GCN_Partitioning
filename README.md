@@ -22,19 +22,16 @@ pip install -r requirements.txt
 ```
 
 ## Usage
-To run the algorithm on any of the Hypergraphs in ./hgr_files folder:
+To run the algorithm place the Hypergraphs in ./hgr_files folder:
 ```bash
-python MinCutSingleHGR.py --mode=old --circuit=[Circuit] --beta=1 --parts=2
+python MinCutSingleHGR.py --circuit=[Circuit] --beta=1 --parts=2
 ```
+[circuit] can be fract, industry2 etc.
 
-To run the graph on a new HGR file, place the .hgr file in /hgr_files folder and then use:
-```bash
-python MinCutSingleHGR.py --mode=new --circuit=[Circuit] --beta=1 --parts=2
-```
 To check the generalization ability of GAP, run 
 ```bash
 python MinCutMultiHGR.py --circuit=[Circuit] --beta=1
+```
 
-`
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)

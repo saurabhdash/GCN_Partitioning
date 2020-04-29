@@ -4,3 +4,4 @@ PyYAML==5.3
 scipy==1.4.1
 torch==1.4.0
 tqdm==4.42.1
+matplotlib
